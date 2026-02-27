@@ -10,8 +10,9 @@ export async function GET() {
       return acc;
     }, {} as Record<string, string>);
     return NextResponse.json(settings);
-  } catch (error) {
-    return NextResponse.json({ error }, { status: 500 });
+  } catch (error: any) {
+    console.error('API_ERROR (Settings GET):', error);
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }
 

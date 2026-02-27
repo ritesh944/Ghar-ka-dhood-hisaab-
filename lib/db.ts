@@ -1,17 +1,16 @@
 import { sql } from '@vercel/postgres';
-import Database from 'better-sqlite3';
 
-const isProd = process.env.NODE_ENV === 'production' && process.env.POSTGRES_URL;
+const isProd = process.env.VERCEL === '1'; // Check if running on Vercel
 
 export async function query(text: string, params: any[] = []) {
   if (isProd) {
-    // For Vercel Postgres, we need to adapt the query slightly if using tagged templates
-    // But for simplicity, we'll use the sql helper where possible.
-    // This is a generic query wrapper.
+    if (!process.env.POSTGRES_URL) {
+      throw new Error('DATABASE_ERROR: POSTGRES_URL is missing. Please connect Vercel Postgres in the Storage tab.');
+    }
     return sql.query(text, params);
   } else {
+    const Database = (await import('better-sqlite3')).default;
     const db = new Database('milk_tracker.db');
-    // Convert Postgres $1, $2 to SQLite ?, ?
     const sqliteQuery = text.replace(/\$\d+/g, '?');
     const stmt = db.prepare(sqliteQuery);
     if (text.trim().toUpperCase().startsWith('SELECT')) {
@@ -48,6 +47,7 @@ export async function initDb() {
     if (isProd) {
       await sql.query(q);
     } else {
+      const Database = (await import('better-sqlite3')).default;
       const db = new Database('milk_tracker.db');
       db.exec(q.replace('SERIAL PRIMARY KEY', 'INTEGER PRIMARY KEY AUTOINCREMENT').replace('ON CONFLICT (key) DO NOTHING', 'OR IGNORE'));
     }
