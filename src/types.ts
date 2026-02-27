@@ -13,7 +13,7 @@ export interface Payment {
 
 export interface AppSettings {
   default_rate: string;
-  theme?: 'light' | 'dark';
+  theme?: 'midnight' | 'ocean' | 'forest' | 'light' | 'dark';
   pin?: string;
 }
 

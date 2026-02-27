@@ -63,7 +63,9 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem('isLoggedIn') === 'true';
+  });
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [entries, setEntries] = useState<MilkEntry[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -73,15 +75,16 @@ export default function App() {
   const [editingEntry, setEditingEntry] = useState<MilkEntry | null>(null);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
+  const [changingPin, setChangingPin] = useState(false);
+  const [pinForm, setPinForm] = useState({ current: '', new: '', confirm: '' });
 
   const monthStr = format(currentMonth, 'yyyy-MM');
 
   useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    // Apply theme
+    const theme = settings.theme || 'midnight';
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.classList.add('dark'); // Keep dark class for tailwind dark: utilities if any
   }, [settings.theme]);
 
   const fetchData = async () => {
@@ -236,6 +239,32 @@ export default function App() {
       body: JSON.stringify(newSettings)
     });
     setSettings(prev => ({ ...prev, ...newSettings }));
+  };
+
+  const handleChangePin = async () => {
+    if (pinForm.new !== pinForm.confirm) {
+      alert("New PIN and Confirm PIN do not match!");
+      return;
+    }
+    if (pinForm.new.length !== 4) {
+      alert("PIN must be 4 digits!");
+      return;
+    }
+
+    const res = await fetch('/api/change-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPin: pinForm.current, newPin: pinForm.new })
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert(data.message);
+      setChangingPin(false);
+      setPinForm({ current: '', new: '', confirm: '' });
+      setSettings(prev => ({ ...prev, pin: pinForm.new }));
+    } else {
+      alert(data.message);
+    }
   };
 
   const generatePDF = () => {
@@ -767,35 +796,93 @@ export default function App() {
               {/* Theme Setting */}
               <div className="pt-6 border-t border-dark-border space-y-4">
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Display Theme</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={() => handleUpdateSettings({ theme: 'light' })}
-                    className={cn(
-                      "h-12 rounded-xl border flex items-center justify-center gap-2 font-bold transition-all",
-                      settings.theme === 'light' ? "bg-primary text-white border-primary" : "border-dark-border text-slate-400"
-                    )}
-                    style={{ backgroundColor: settings.theme === 'light' ? undefined : 'var(--bg-color)' }}
-                  >
-                    <Eye className="w-4 h-4" />
-                    Light
-                  </button>
-                  <button 
-                    onClick={() => handleUpdateSettings({ theme: 'dark' })}
-                    className={cn(
-                      "h-12 rounded-xl border flex items-center justify-center gap-2 font-bold transition-all",
-                      settings.theme === 'dark' ? "bg-primary text-white border-primary" : "border-dark-border text-slate-400"
-                    )}
-                    style={{ backgroundColor: settings.theme === 'dark' ? undefined : 'var(--bg-color)' }}
-                  >
-                    <EyeOff className="w-4 h-4" />
-                    Dark
-                  </button>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'midnight', label: 'Midnight', color: 'bg-[#f97316]' },
+                    { id: 'ocean', label: 'Ocean', color: 'bg-[#06b6d4]' },
+                    { id: 'forest', label: 'Forest', color: 'bg-[#22c55e]' }
+                  ].map((t) => (
+                    <button 
+                      key={t.id}
+                      onClick={() => handleUpdateSettings({ theme: t.id as any })}
+                      className={cn(
+                        "h-16 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all",
+                        (settings.theme || 'midnight') === t.id ? "border-primary ring-2 ring-primary/20" : "border-dark-border opacity-60 grayscale hover:grayscale-0 hover:opacity-100"
+                      )}
+                    >
+                      <div className={cn("w-4 h-4 rounded-full", t.color)} />
+                      <span className="text-[9px] font-black uppercase">{t.label}</span>
+                    </button>
+                  ))}
                 </div>
+              </div>
+
+              {/* PIN Change Section */}
+              <div className="pt-6 border-t border-dark-border space-y-4">
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Security (PIN)</label>
+                {!changingPin ? (
+                  <button 
+                    onClick={() => setChangingPin(true)}
+                    className="w-full h-12 bg-dark-border text-slate-300 rounded-xl flex items-center justify-center gap-2 font-bold hover:bg-white/5 transition-all"
+                  >
+                    <Lock className="w-4 h-4" />
+                    Change Access PIN
+                  </button>
+                ) : (
+                  <div className="space-y-4 p-4 rounded-xl border border-dark-border bg-black/20">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold text-primary uppercase">Update PIN</span>
+                      <button onClick={() => setChangingPin(false)}><X className="w-4 h-4 text-slate-500" /></button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1">Current PIN</label>
+                        <input 
+                          type="password" 
+                          className="input-field h-10 text-center tracking-widest"
+                          maxLength={4}
+                          value={pinForm.current}
+                          onChange={(e) => setPinForm({...pinForm, current: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1">New PIN</label>
+                        <input 
+                          type="password" 
+                          className="input-field h-10 text-center tracking-widest"
+                          maxLength={4}
+                          value={pinForm.new}
+                          onChange={(e) => setPinForm({...pinForm, new: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-1">Confirm PIN</label>
+                        <input 
+                          type="password" 
+                          className="input-field h-10 text-center tracking-widest"
+                          maxLength={4}
+                          value={pinForm.confirm}
+                          onChange={(e) => setPinForm({...pinForm, confirm: e.target.value})}
+                        />
+                      </div>
+                      <button 
+                        onClick={handleChangePin}
+                        className="btn-primary w-full h-10 text-xs"
+                      >
+                        Save New PIN
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="pt-6 border-t border-dark-border">
                 <button 
-                  onClick={() => setIsLoggedIn(false)}
+                  onClick={() => {
+                    setIsLoggedIn(false);
+                    localStorage.removeItem('isLoggedIn');
+                  }}
                   className="w-full h-12 flex items-center justify-center gap-2 text-slate-500 hover:text-rose-500 transition-colors text-[10px] font-black uppercase tracking-widest"
                 >
                   <LogOut className="w-4 h-4" />
@@ -1004,8 +1091,9 @@ function LoginPage({ onLogin, correctPin }: { onLogin: () => void, correctPin: s
 
   const handleLogin = (pinToTry?: string) => {
     const currentPin = pinToTry !== undefined ? pinToTry : pin;
-    if (currentPin === correctPin || currentPin === '') {
+    if (currentPin === correctPin) {
       onLogin();
+      localStorage.setItem('isLoggedIn', 'true');
     } else {
       setError(true);
       setTimeout(() => setError(false), 500);

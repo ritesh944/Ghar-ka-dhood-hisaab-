@@ -1,34 +1,55 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #f97316; /* Orange-500 */
-  --color-primary-light: #fff7ed; /* Orange-50 */
-  --color-primary-dark: #ea580c; /* Orange-600 */
+  --color-primary: var(--primary-color, #f97316); /* Dynamic primary */
+  --color-primary-light: var(--primary-light, #fff7ed);
+  --color-primary-dark: var(--primary-dark, #ea580c);
 }
 
 :root {
-  --bg-color: #ffffff;
-  --card-bg: #f8fafc;
-  --border-color: #e2e8f0;
-  --text-main: #0f172a;
-  --text-muted: #64748b;
-  --input-bg: #ffffff;
-}
-
-.dark {
   --bg-color: #0a0a0a;
   --card-bg: #171717;
   --border-color: #262626;
   --text-main: #f1f5f9;
   --text-muted: #94a3b8;
   --input-bg: #0a0a0a;
+  --primary-color: #f97316;
+  --primary-light: #fff7ed;
+  --primary-dark: #ea580c;
+}
+
+/* Midnight Theme (Default) */
+[data-theme='midnight'] {
+  --bg-color: #0a0a0a;
+  --card-bg: #171717;
+  --border-color: #262626;
+  --primary-color: #f97316;
+  --primary-dark: #ea580c;
+}
+
+/* Ocean Theme */
+[data-theme='ocean'] {
+  --bg-color: #020617;
+  --card-bg: #0f172a;
+  --border-color: #1e293b;
+  --primary-color: #06b6d4; /* Cyan-500 */
+  --primary-dark: #0891b2; /* Cyan-600 */
+}
+
+/* Forest Theme */
+[data-theme='forest'] {
+  --bg-color: #050505;
+  --card-bg: #0a0a0a;
+  --border-color: #14532d; /* Green-900 */
+  --primary-color: #22c55e; /* Green-500 */
+  --primary-dark: #16a34a; /* Green-600 */
 }
 
 @layer base {
   body {
     background-color: var(--bg-color);
     color: var(--text-main);
-    @apply font-sans transition-colors duration-300;
+    @apply font-sans transition-all duration-500;
   }
 }
 

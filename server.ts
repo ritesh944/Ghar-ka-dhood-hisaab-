@@ -86,6 +86,18 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post("/api/change-pin", (req, res) => {
+    const { currentPin, newPin } = req.body;
+    const storedPin = db.prepare("SELECT value FROM settings WHERE key = 'pin'").get()?.value;
+
+    if (currentPin !== storedPin) {
+      return res.status(400).json({ success: false, message: "Current PIN is incorrect" });
+    }
+
+    db.prepare("UPDATE settings SET value = ? WHERE key = 'pin'").run(newPin);
+    res.json({ success: true, message: "PIN updated successfully" });
+  });
+
   app.delete("/api/entries/:id", (req, res) => {
     const { id } = req.params;
     db.prepare("DELETE FROM entries WHERE id = ?").run(id);
