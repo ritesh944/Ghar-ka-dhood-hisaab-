@@ -1,7 +1,4 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+"use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
@@ -53,7 +50,7 @@ import {
 } from 'recharts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { MilkEntry, Payment, AppSettings, MonthlySummary } from './types';
+import { MilkEntry, Payment, AppSettings, MonthlySummary } from '../lib/types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
@@ -63,9 +60,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return localStorage.getItem('isLoggedIn') === 'true';
-  });
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [entries, setEntries] = useState<MilkEntry[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -81,10 +76,16 @@ export default function App() {
   const monthStr = format(currentMonth, 'yyyy-MM');
 
   useEffect(() => {
+    // Check login on mount
+    const loggedIn = localStorage.getItem('isLoggedIn') === 'true';
+    setIsLoggedIn(loggedIn);
+  }, []);
+
+  useEffect(() => {
     // Apply theme
     const theme = settings.theme || 'midnight';
     document.documentElement.setAttribute('data-theme', theme);
-    document.documentElement.classList.add('dark'); // Keep dark class for tailwind dark: utilities if any
+    document.documentElement.classList.add('dark');
   }, [settings.theme]);
 
   const fetchData = async () => {
@@ -100,22 +101,15 @@ export default function App() {
       const paymentsData = await paymentsRes.json();
       const settingsData = await settingsRes.json();
 
-      setEntries(entriesData);
-      setPayments(paymentsData);
-      setSettings(settingsData);
+      setEntries(Array.isArray(entriesData) ? entriesData : []);
+      setPayments(Array.isArray(paymentsData) ? paymentsData : []);
+      setSettings(settingsData || { default_rate: '60' });
     } catch (error) {
       console.error("Failed to fetch data", error);
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    // Initial settings fetch
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(data => setSettings(data));
-  }, []);
 
   useEffect(() => {
     fetchData();
@@ -154,20 +148,12 @@ export default function App() {
 
   const handleAddEntry = async (date: string, quantity: number, rate: number) => {
     try {
-      if (editingEntry) {
-        await fetch(`/api/entries/${editingEntry.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date, quantity, rate })
-        });
-        setEditingEntry(null);
-      } else {
-        await fetch('/api/entries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date, quantity, rate })
-        });
-      }
+      await fetch('/api/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, quantity, rate })
+      });
+      setEditingEntry(null);
       setShowSuccessAnim(true);
       setTimeout(() => setShowSuccessAnim(false), 2000);
       fetchData();
@@ -188,26 +174,18 @@ export default function App() {
 
   const handleDeleteEntry = async (id: number) => {
     if (!confirm("Kya aap is entry ko delete karna chahte hain?")) return;
-    await fetch(`/api/entries/${id}`, { method: 'DELETE' });
+    await fetch(`/api/entries?id=${id}`, { method: 'DELETE' });
     fetchData();
   };
 
   const handleAddPayment = async (date: string, amount: number) => {
     try {
-      if (editingPayment) {
-        await fetch(`/api/payments/${editingPayment.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date, amount })
-        });
-        setEditingPayment(null);
-      } else {
-        await fetch('/api/payments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date, amount })
-        });
-      }
+      await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editingPayment?.id, date, amount })
+      });
+      setEditingPayment(null);
       setShowSuccessAnim(true);
       setTimeout(() => setShowSuccessAnim(false), 2000);
       fetchData();
@@ -228,7 +206,7 @@ export default function App() {
 
   const handleDeletePayment = async (id: number) => {
     if (!confirm("Kya aap is payment ko delete karna chahte hain?")) return;
-    await fetch(`/api/payments/${id}`, { method: 'DELETE' });
+    await fetch(`/api/payments?id=${id}`, { method: 'DELETE' });
     fetchData();
   };
 
@@ -268,54 +246,48 @@ export default function App() {
   };
 
   const generatePDF = () => {
-    try {
-      const doc = new jsPDF();
-      const monthName = format(currentMonth, 'MMMM yyyy');
-      
-      doc.setFontSize(20);
-      doc.text('Ghar Ka Doodh Hisaab', 14, 22);
-      doc.setFontSize(12);
-      doc.text(`Monthly Report: ${monthName}`, 14, 32);
+    const doc = new jsPDF();
+    const monthName = format(currentMonth, 'MMMM yyyy');
+    
+    doc.setFontSize(20);
+    doc.text('Ghar Ka Doodh Hisaab', 14, 22);
+    doc.setFontSize(12);
+    doc.text(`Monthly Report: ${monthName}`, 14, 32);
 
-      const summaryData = [
-        ['Total Liters', `${summary.totalLiters.toFixed(2)} L`],
-        ['Total Amount', `Rs. ${summary.totalAmount.toFixed(2)}`],
-        ['Paid Amount', `Rs. ${summary.paidAmount.toFixed(2)}`],
-        ['Remaining Balance', `Rs. ${summary.balance.toFixed(2)}`]
-      ];
+    const summaryData = [
+      ['Total Liters', `${summary.totalLiters.toFixed(2)} L`],
+      ['Total Amount', `Rs. ${summary.totalAmount.toFixed(2)}`],
+      ['Paid Amount', `Rs. ${summary.paidAmount.toFixed(2)}`],
+      ['Remaining Balance', `Rs. ${summary.balance.toFixed(2)}`]
+    ];
 
-      autoTable(doc, {
-        startY: 40,
-        head: [['Description', 'Value']],
-        body: summaryData,
-        theme: 'striped',
-        headStyles: { fillColor: [249, 115, 22] } // Orange
-      });
+    autoTable(doc, {
+      startY: 40,
+      head: [['Description', 'Value']],
+      body: summaryData,
+      theme: 'striped',
+      headStyles: { fillColor: [249, 115, 22] }
+    });
 
-      const tableData = entries.map(e => [
-        format(parseISO(e.date), 'dd MMM yyyy'),
-        `${e.quantity} L`,
-        `Rs. ${e.rate}`,
-        `Rs. ${(e.quantity * e.rate).toFixed(2)}`
-      ]);
+    const tableData = entries.map(e => [
+      format(parseISO(e.date), 'dd MMM yyyy'),
+      `${e.quantity} L`,
+      `Rs. ${e.rate}`,
+      `Rs. ${(e.quantity * e.rate).toFixed(2)}`
+    ]);
 
-      const finalY = (doc as any).lastAutoTable?.finalY || 40;
-      doc.text('Daily Entries', 14, finalY + 15);
-      
-      autoTable(doc, {
-        startY: finalY + 20,
-        head: [['Date', 'Quantity', 'Rate', 'Total']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { fillColor: [249, 115, 22] }
-      });
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    doc.text('Daily Entries', 14, finalY + 15);
+    
+    autoTable(doc, {
+      startY: finalY + 20,
+      head: [['Date', 'Quantity', 'Rate', 'Total']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [249, 115, 22] }
+    });
 
-      return doc;
-    } catch (error) {
-      console.error("PDF Generation Error:", error);
-      alert("PDF generate karne mein samasya aayi.");
-      throw error;
-    }
+    return doc;
   };
 
   const exportPDF = () => {
@@ -389,7 +361,10 @@ export default function App() {
   };
 
   if (!isLoggedIn) {
-    return <LoginPage onLogin={() => setIsLoggedIn(true)} correctPin={settings.pin || '2580'} />;
+    return <LoginPage onLogin={() => {
+      setIsLoggedIn(true);
+      localStorage.setItem('isLoggedIn', 'true');
+    }} correctPin={settings.pin || '2580'} />;
   }
 
   return (
@@ -955,99 +930,38 @@ export default function App() {
                   </span>
                 </div>
               </div>
-
-              <div className="pt-4 grid grid-cols-1 gap-2.5">
-                <button 
-                  onClick={exportPDF}
-                  className="w-full btn-primary h-12 text-[10px] uppercase tracking-widest flex items-center justify-center gap-2.5"
-                >
-                  <Download className="w-5 h-5" />
-                  Download Report
-                </button>
-                <button 
-                  onClick={copyToClipboard}
-                  className="w-full bg-dark-border text-white hover:bg-white/10 h-12 rounded-xl text-[10px] uppercase tracking-widest flex items-center justify-center gap-2.5 transition-all"
-                >
-                  <Copy className="w-5 h-5" />
-                  Copy Summary
-                </button>
-              </div>
             </motion.div>
           </div>
         </div>
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-dark-card/80 backdrop-blur-xl border border-dark-border px-5 py-3 rounded-full flex gap-4 md:gap-6 items-center z-40 shadow-2xl">
-        <NavButton 
-          active={activeTab === 'dashboard'} 
-          onClick={() => setActiveTab('dashboard')}
-          icon={<Zap className="w-5 h-5" />}
-          label="Home"
-        />
-        <NavButton 
-          active={activeTab === 'milk'} 
-          onClick={() => setActiveTab('milk')}
-          icon={<Milk className="w-5 h-5" />}
-          label="Milk"
-        />
-        <NavButton 
-          active={activeTab === 'payments'} 
-          onClick={() => setActiveTab('payments')}
-          icon={<IndianRupee className="w-5 h-5" />}
-          label="Pay"
-        />
-        <NavButton 
-          active={activeTab === 'history'} 
-          onClick={() => setActiveTab('history')}
-          icon={<History className="w-5 h-5" />}
-          label="Log"
-        />
-        <NavButton 
-          active={activeTab === 'edit'} 
-          onClick={() => setActiveTab('edit')}
-          icon={<Edit2 className="w-5 h-5" />}
-          label="Edit"
-        />
-        <NavButton 
-          active={activeTab === 'settings'} 
-          onClick={() => setActiveTab('settings')}
-          icon={<SettingsIcon className="w-5 h-5" />}
-          label="Config"
-        />
+      <nav className="fixed bottom-0 left-0 right-0 bg-dark-card border-t border-dark-border p-2 z-40 backdrop-blur-xl bg-opacity-90">
+        <div className="max-w-md mx-auto flex justify-around items-center">
+          <NavButton icon={<TrendingUp className="w-5 h-5" />} label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <NavButton icon={<Plus className="w-5 h-5" />} label="Milk" active={activeTab === 'milk'} onClick={() => setActiveTab('milk')} />
+          <NavButton icon={<IndianRupee className="w-5 h-5" />} label="Cash" active={activeTab === 'payments'} onClick={() => setActiveTab('payments')} />
+          <NavButton icon={<History className="w-5 h-5" />} label="Log" active={activeTab === 'edit'} onClick={() => setActiveTab('edit')} />
+          <NavButton icon={<Download className="w-5 h-5" />} label="Report" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+          <NavButton icon={<SettingsIcon className="w-5 h-5" />} label="Config" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+        </div>
       </nav>
     </div>
   );
 }
 
-function SummaryCard({ label, value, unit, icon, trend, color, className }: { label: string, value: string, unit?: string, icon: React.ReactNode, trend: string, color: string, className?: string }) {
-  const colorMap: any = {
-    orange: "text-primary bg-primary/10",
-    emerald: "text-emerald-500 bg-emerald-500/10",
-    rose: "text-rose-500 bg-rose-500/10",
-    white: "text-white bg-white/10",
-  };
-
+function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
   return (
-    <motion.div 
-      whileHover={{ y: -5 }}
-      className={cn("card p-5 relative overflow-hidden group", className)}
+    <button 
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300",
+        active ? "text-primary scale-110" : "text-slate-500 hover:text-slate-300"
+      )}
     >
-      <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110", colorMap[color])}>
-        {icon}
-      </div>
-      <div className="space-y-1">
-        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{label}</p>
-        <div className="flex items-baseline gap-1">
-          <p className="text-2xl font-black text-main tracking-tighter">{value}</p>
-          {unit && <span className="text-xs font-bold text-slate-500">{unit}</span>}
-        </div>
-      </div>
-      <div className="absolute top-4 right-4 flex items-center gap-1 text-[8px] font-black uppercase text-slate-600">
-        <ArrowUpRight className="w-3 h-3" />
-        {trend}
-      </div>
-    </motion.div>
+      {icon}
+      <span className="text-[8px] font-black uppercase tracking-widest">{label}</span>
+    </button>
   );
 }
 
@@ -1055,7 +969,7 @@ function HeaderAction({ icon, onClick, title }: { icon: React.ReactNode, onClick
   return (
     <button 
       onClick={onClick}
-      className="p-2.5 bg-dark-border hover:bg-primary hover:text-white rounded-xl transition-all active:scale-90 text-main"
+      className="p-2 text-slate-400 hover:text-primary hover:bg-white/5 rounded-xl transition-all"
       title={title}
     >
       {icon}
@@ -1063,246 +977,7 @@ function HeaderAction({ icon, onClick, title }: { icon: React.ReactNode, onClick
   );
 }
 
-function NavButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
-  return (
-    <button 
-      onClick={onClick}
-      className={cn(
-        "flex flex-col items-center gap-1 transition-all relative",
-        active ? "text-primary scale-110" : "text-slate-500 hover:text-slate-300"
-      )}
-    >
-      {icon}
-      <span className="text-[8px] font-black uppercase tracking-widest">{label}</span>
-      {active && (
-        <motion.div 
-          layoutId="nav-glow"
-          className="absolute -inset-4 bg-primary/10 blur-xl rounded-full -z-10"
-        />
-      )}
-    </button>
-  );
-}
-
-function LoginPage({ onLogin, correctPin }: { onLogin: () => void, correctPin: string }) {
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-
-  const handleLogin = (pinToTry?: string) => {
-    const currentPin = pinToTry !== undefined ? pinToTry : pin;
-    if (currentPin === correctPin) {
-      onLogin();
-      localStorage.setItem('isLoggedIn', 'true');
-    } else {
-      setError(true);
-      setTimeout(() => setError(false), 500);
-      setPin('');
-    }
-  };
-
-  // Character Animation States
-  const eyeVariants = {
-    default: { y: 0, x: 0 },
-    typing: { 
-      y: 2, 
-      x: (pin.length - 2) * 2,
-      transition: { type: "spring", stiffness: 300 }
-    },
-    error: { 
-      y: [0, -2, 2, -2, 0],
-      x: 0,
-      transition: { duration: 0.4 }
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-main flex items-center justify-center p-4 overflow-hidden relative" style={{ backgroundColor: 'var(--bg-color)' }}>
-      {/* Immersive Background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-primary/10 blur-[150px] rounded-full animate-pulse" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-emerald-500/5 blur-[150px] rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full opacity-[0.03] pointer-events-none" 
-             style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-md z-10"
-      >
-        {/* Character Animation Area */}
-        <div className="relative h-40 flex items-center justify-center mb-4">
-          <motion.div 
-            animate={error ? { rotate: [-5, 5, -5, 5, 0] } : {}}
-            className="relative"
-          >
-            {/* Milk Bottle Character */}
-            <div className="w-24 h-32 bg-white rounded-t-3xl rounded-b-xl relative shadow-2xl overflow-hidden border-4 border-white/20">
-              {/* Milk Level */}
-              <motion.div 
-                animate={{ height: `${40 + (pin.length * 15)}%` }}
-                className="absolute bottom-0 left-0 right-0 bg-slate-100/50"
-              />
-              
-              {/* Face */}
-              <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-3">
-                <div className="flex gap-4">
-                  {/* Eyes */}
-                  <motion.div 
-                    variants={eyeVariants}
-                    animate={error ? "error" : (pin.length > 0 ? "typing" : "default")}
-                    className="flex gap-4"
-                  >
-                    <div className="w-3 h-3 bg-slate-900 rounded-full relative">
-                      <div className="w-1 h-1 bg-white rounded-full absolute top-0.5 left-0.5" />
-                    </div>
-                    <div className="w-3 h-3 bg-slate-900 rounded-full relative">
-                      <div className="w-1 h-1 bg-white rounded-full absolute top-0.5 left-0.5" />
-                    </div>
-                  </motion.div>
-                </div>
-                {/* Mouth */}
-                <motion.div 
-                  animate={error ? { scaleY: 0.2, borderRadius: "2px" } : { scaleY: 1, borderRadius: "10px" }}
-                  className="w-6 h-1.5 bg-slate-900 rounded-full"
-                />
-              </div>
-            </div>
-            
-            {/* Cap */}
-            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-12 h-4 bg-primary rounded-full shadow-lg" />
-            
-            {/* Hands covering eyes when typing (optional effect) */}
-            {pin.length > 0 && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute top-8 -left-4 -right-4 flex justify-between pointer-events-none"
-              >
-                <div className="w-6 h-6 bg-white rounded-full shadow-md border-2 border-slate-100" />
-                <div className="w-6 h-6 bg-white rounded-full shadow-md border-2 border-slate-100" />
-              </motion.div>
-            )}
-          </motion.div>
-        </div>
-
-        <div className="text-center mb-8">
-          <motion.h1 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="text-3xl font-black text-white tracking-tighter uppercase mb-1"
-          >
-            Welcome <span className="text-primary">Back</span>
-          </motion.h1>
-          <motion.p 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-slate-500 text-[10px] font-black uppercase tracking-[0.4em]"
-          >
-            Authentication Required
-          </motion.p>
-        </div>
-
-        <motion.div 
-          animate={error ? { x: [-6, 6, -6, 6, 0] } : {}}
-          className="card border border-white/5 backdrop-blur-3xl bg-dark-card/60 p-8 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)]"
-        >
-          <div className="space-y-8">
-            <div className="relative">
-              <div className="flex justify-center gap-4 mb-8">
-                {[0, 1, 2, 3].map((i) => (
-                  <motion.div 
-                    key={i}
-                    initial={false}
-                    animate={{ 
-                      scale: pin.length === i ? 1.2 : 1,
-                      backgroundColor: pin.length > i ? '#f97316' : 'rgba(255,255,255,0.05)',
-                      borderColor: pin.length === i ? '#f97316' : 'rgba(255,255,255,0.1)'
-                    }}
-                    className="w-12 h-16 rounded-2xl border-2 flex items-center justify-center text-2xl font-black text-white transition-colors"
-                  >
-                    {pin.length > i ? '•' : ''}
-                  </motion.div>
-                ))}
-              </div>
-              
-              <input 
-                type="password"
-                maxLength={4}
-                autoFocus
-                className="opacity-0 absolute inset-0 w-full h-full cursor-default"
-                value={pin}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/\D/g, '');
-                  setPin(val);
-                  if (val.length === 4) {
-                    setTimeout(() => handleLogin(val), 300);
-                  }
-                }}
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, '✓'].map((val) => (
-                <motion.button
-                  key={val.toString()}
-                  type="button"
-                  whileHover={{ scale: 1.02, backgroundColor: 'rgba(255,255,255,0.08)' }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => {
-                    if (val === 'C') setPin('');
-                    else if (val === '✓') handleLogin();
-                    else if (pin.length < 4) {
-                      const newVal = pin + val;
-                      setPin(newVal);
-                      if (newVal.length === 4) setTimeout(() => handleLogin(newVal), 300);
-                    }
-                  }}
-                  className={cn(
-                    "h-14 rounded-xl flex items-center justify-center text-lg font-black transition-all border border-white/5",
-                    val === '✓' ? "bg-primary text-white shadow-lg shadow-primary/20" : "bg-white/5 text-white hover:border-white/10"
-                  )}
-                >
-                  {val === 'C' ? <X className="w-5 h-5" /> : val === '✓' ? <CheckCircle2 className="w-5 h-5" /> : val}
-                </motion.button>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-center gap-2 text-slate-600">
-              <Lock className="w-3 h-3" />
-              <p className="text-[9px] font-black uppercase tracking-widest">
-                Encrypted Access Only
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-          className="mt-8 text-center space-y-4"
-        >
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/5">
-            <User className="w-3 h-3 text-primary" />
-            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Default PIN: 2580</span>
-          </div>
-          <p className="text-slate-800 text-[8px] font-black uppercase tracking-[0.5em]">
-            System Version 2.4.0
-          </p>
-        </motion.div>
-      </motion.div>
-    </div>
-  );
-}
-
-function EntryForm({ defaultRate, onSubmit, editingEntry, onCancel }: { defaultRate: number, onSubmit: (date: string, qty: number, rate: number) => void, editingEntry: MilkEntry | null, onCancel: () => void }) {
+function EntryForm({ defaultRate, onSubmit, editingEntry, onCancel }: { defaultRate: number, onSubmit: (date: string, quantity: number, rate: number) => void, editingEntry: MilkEntry | null, onCancel: () => void }) {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [quantity, setQuantity] = useState('1');
   const [rate, setRate] = useState(defaultRate.toString());
@@ -1462,5 +1137,146 @@ function PaymentForm({ onSubmit, editingPayment, onCancel }: { onSubmit: (date: 
         </button>
       </form>
     </motion.div>
+  );
+}
+
+function LoginPage({ onLogin, correctPin }: { onLogin: () => void, correctPin: string }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+
+  const handleLogin = (pinToTry?: string) => {
+    const currentPin = pinToTry !== undefined ? pinToTry : pin;
+    if (currentPin === correctPin) {
+      onLogin();
+    } else {
+      setError(true);
+      setTimeout(() => setError(false), 500);
+      setPin('');
+    }
+  };
+
+  // Character Animation States
+  const eyeVariants = {
+    default: { y: 0, x: 0 },
+    typing: { 
+      y: 2, 
+      x: (pin.length - 2) * 2,
+      transition: { type: "spring" as const, stiffness: 300 }
+    },
+    error: { 
+      y: [0, -2, 2, -2, 0],
+      x: 0,
+      transition: { duration: 0.4 }
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-main flex items-center justify-center p-4 overflow-hidden relative" style={{ backgroundColor: 'var(--bg-color)' }}>
+      {/* Immersive Background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-primary/10 blur-[150px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-emerald-500/5 blur-[150px] rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full opacity-[0.03] pointer-events-none" 
+             style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-md z-10"
+      >
+        {/* Character Animation Area */}
+        <div className="relative h-40 flex items-center justify-center mb-4">
+          <motion.div 
+            animate={error ? { rotate: [-5, 5, -5, 5, 0] } : {}}
+            className="relative"
+          >
+            {/* Milk Bottle Character */}
+            <div className="w-24 h-32 bg-white rounded-t-3xl rounded-b-xl relative shadow-2xl overflow-hidden border-4 border-white/20">
+              {/* Milk Level */}
+              <motion.div 
+                animate={{ height: `${40 + (pin.length * 15)}%` }}
+                className="absolute bottom-0 left-0 right-0 bg-slate-100/50"
+              />
+              
+              {/* Face */}
+              <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-3">
+                <div className="flex gap-4">
+                  {/* Eyes */}
+                  <motion.div 
+                    variants={eyeVariants}
+                    animate={error ? "error" : (pin.length > 0 ? "typing" : "default")}
+                    className="flex gap-4"
+                  >
+                    <div className="w-3 h-3 bg-slate-800 rounded-full" />
+                    <div className="w-3 h-3 bg-slate-800 rounded-full" />
+                  </motion.div>
+                </div>
+                {/* Mouth */}
+                <motion.div 
+                  animate={error ? { scaleY: 0.5, y: 2 } : (pin.length > 0 ? { scaleX: 1.2 } : { scaleX: 1 })}
+                  className="w-6 h-1 bg-slate-800 rounded-full" 
+                />
+              </div>
+            </div>
+            {/* Cap */}
+            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-16 h-4 bg-primary rounded-full shadow-lg" />
+          </motion.div>
+        </div>
+
+        <div className="bg-dark-card/80 backdrop-blur-2xl p-8 rounded-[32px] border border-dark-border shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] space-y-8">
+          <div className="text-center space-y-2">
+            <h2 className="text-3xl font-black text-white uppercase tracking-tighter">Welcome Back</h2>
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Enter your 4-digit security PIN</p>
+          </div>
+
+          <div className="flex justify-center gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <motion.div
+                key={i}
+                animate={pin.length > i ? { scale: [1, 1.2, 1], backgroundColor: 'var(--primary-color)' } : { scale: 1, backgroundColor: 'rgba(255,255,255,0.05)' }}
+                className={cn(
+                  "w-4 h-4 rounded-full border border-dark-border transition-colors",
+                  pin.length > i ? "border-primary" : "border-dark-border"
+                )}
+              />
+            ))}
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, 'OK'].map((num) => (
+              <button
+                key={num}
+                onClick={() => {
+                  if (num === 'C') setPin('');
+                  else if (num === 'OK') handleLogin();
+                  else if (pin.length < 4) {
+                    const newPin = pin + num;
+                    setPin(newPin);
+                    if (newPin.length === 4) {
+                      setTimeout(() => handleLogin(newPin), 300);
+                    }
+                  }
+                }}
+                className={cn(
+                  "h-16 rounded-2xl flex items-center justify-center text-xl font-black transition-all active:scale-90",
+                  num === 'OK' ? "bg-primary text-white shadow-lg shadow-primary/20" : 
+                  num === 'C' ? "bg-rose-500/10 text-rose-500" : 
+                  "bg-white/5 text-white hover:bg-white/10"
+                )}
+              >
+                {num}
+              </button>
+            ))}
+          </div>
+          
+          <div className="text-center">
+            <p className="text-[9px] text-slate-600 font-bold uppercase tracking-[0.2em]">Secure End-to-End Encryption</p>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }
