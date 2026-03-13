@@ -1,21 +1,27 @@
-import { createPool } from '@vercel/postgres';
+import { createPool, VercelPool } from '@vercel/postgres';
 
 const isProd = process.env.VERCEL === '1';
 
-// Create a pool instance for production
-const pool = isProd ? createPool({
-  connectionString: process.env.POSTGRES_URL
-}) : null;
+let pool: VercelPool | null = null;
+
+function getPool() {
+  if (!isProd) return null;
+  if (!pool) {
+    const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
+    if (!connectionString) {
+      throw new Error('DATABASE_ERROR: No connection string found. Please check Vercel Environment Variables.');
+    }
+    pool = createPool({ connectionString });
+  }
+  return pool;
+}
 
 export async function query(text: string, params: any[] = []) {
   if (isProd) {
-    if (!process.env.POSTGRES_URL) {
-      throw new Error('DATABASE_ERROR: POSTGRES_URL is missing. Please connect Vercel Postgres in the Storage tab.');
-    }
+    const p = getPool();
     try {
-      return await pool!.query(text, params);
+      return await p!.query(text, params);
     } catch (error: any) {
-      // If pooled connection fails, it might be a direct connection string
       console.error('Database query error:', error);
       throw error;
     }
@@ -62,22 +68,21 @@ export async function initDb() {
   ];
 
   try {
-    for (const q of queries) {
-      if (isProd) {
-        await pool!.query(q);
-      } else {
-        const Database = (await import('better-sqlite3')).default;
-        const db = new Database('milk_tracker.db');
+    if (isProd) {
+      const p = getPool();
+      for (const q of queries) {
+        await p!.query(q);
+      }
+      for (const seed of seedQueries) {
+        await p!.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [seed.key, seed.value]);
+      }
+    } else {
+      const Database = (await import('better-sqlite3')).default;
+      const db = new Database('milk_tracker.db');
+      for (const q of queries) {
         db.exec(q);
       }
-    }
-
-    for (const seed of seedQueries) {
-      if (isProd) {
-        await pool!.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [seed.key, seed.value]);
-      } else {
-        const Database = (await import('better-sqlite3')).default;
-        const db = new Database('milk_tracker.db');
+      for (const seed of seedQueries) {
         db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`).run(seed.key, seed.value);
       }
     }
