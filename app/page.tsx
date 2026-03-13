@@ -88,14 +88,22 @@ export default function App() {
     document.documentElement.classList.add('dark');
   }, [settings.theme]);
 
+  const [error, setError] = useState<string | null>(null);
+
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [entriesRes, paymentsRes, settingsRes] = await Promise.all([
         fetch(`/api/entries?month=${monthStr}`),
         fetch(`/api/payments?month=${monthStr}`),
         fetch('/api/settings')
       ]);
+
+      if (!entriesRes.ok || !paymentsRes.ok || !settingsRes.ok) {
+        const errData = await entriesRes.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to fetch data from server');
+      }
 
       const entriesData = await entriesRes.json();
       const paymentsData = await paymentsRes.json();
@@ -104,8 +112,9 @@ export default function App() {
       setEntries(Array.isArray(entriesData) ? entriesData : []);
       setPayments(Array.isArray(paymentsData) ? paymentsData : []);
       setSettings(settingsData || { default_rate: '60' });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to fetch data", error);
+      setError(error.message || "Server se data load karne mein dikkat aa rahi hai.");
     } finally {
       setLoading(false);
     }
@@ -395,6 +404,29 @@ export default function App() {
           </div>
         </div>
       </header>
+      
+      {/* Error Banner */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="bg-red-500/10 border-b border-red-500/20 text-red-500 px-4 py-3 text-sm flex items-center justify-between sticky top-[73px] z-20 backdrop-blur-sm"
+          >
+            <div className="flex items-center gap-3 max-w-4xl mx-auto w-full">
+              <X className="w-4 h-4 flex-shrink-0" />
+              <span className="font-bold">{error}</span>
+              <button 
+                onClick={() => setError(null)}
+                className="ml-auto p-1 hover:bg-red-500/20 rounded transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="max-w-6xl mx-auto p-4 md:p-6 grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* Main Content Area */}

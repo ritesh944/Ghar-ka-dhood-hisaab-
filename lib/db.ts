@@ -24,32 +24,50 @@ export async function query(text: string, params: any[] = []) {
 export async function initDb() {
   const queries = [
     `CREATE TABLE IF NOT EXISTS entries (
-      id SERIAL PRIMARY KEY,
+      id ${isProd ? 'SERIAL' : 'INTEGER'} PRIMARY KEY ${!isProd ? 'AUTOINCREMENT' : ''},
       date TEXT UNIQUE,
       quantity REAL,
       rate REAL
     );`,
     `CREATE TABLE IF NOT EXISTS payments (
-      id SERIAL PRIMARY KEY,
+      id ${isProd ? 'SERIAL' : 'INTEGER'} PRIMARY KEY ${!isProd ? 'AUTOINCREMENT' : ''},
       date TEXT,
       amount REAL
     );`,
     `CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
-    );`,
-    `INSERT INTO settings (key, value) VALUES ('default_rate', '60') ON CONFLICT (key) DO NOTHING;`,
-    `INSERT INTO settings (key, value) VALUES ('theme', 'midnight') ON CONFLICT (key) DO NOTHING;`,
-    `INSERT INTO settings (key, value) VALUES ('pin', '2580') ON CONFLICT (key) DO NOTHING;`
+    );`
   ];
 
-  for (const q of queries) {
-    if (isProd) {
-      await sql.query(q);
-    } else {
-      const Database = (await import('better-sqlite3')).default;
-      const db = new Database('milk_tracker.db');
-      db.exec(q.replace('SERIAL PRIMARY KEY', 'INTEGER PRIMARY KEY AUTOINCREMENT').replace('ON CONFLICT (key) DO NOTHING', 'OR IGNORE'));
+  const seedQueries = [
+    { key: 'default_rate', value: '60' },
+    { key: 'theme', value: 'midnight' },
+    { key: 'pin', value: '2580' }
+  ];
+
+  try {
+    for (const q of queries) {
+      if (isProd) {
+        await sql.query(q);
+      } else {
+        const Database = (await import('better-sqlite3')).default;
+        const db = new Database('milk_tracker.db');
+        db.exec(q);
+      }
     }
+
+    for (const seed of seedQueries) {
+      if (isProd) {
+        await sql.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [seed.key, seed.value]);
+      } else {
+        const Database = (await import('better-sqlite3')).default;
+        const db = new Database('milk_tracker.db');
+        db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`).run(seed.key, seed.value);
+      }
+    }
+  } catch (error) {
+    console.error('Database initialization error:', error);
+    throw error;
   }
 }
