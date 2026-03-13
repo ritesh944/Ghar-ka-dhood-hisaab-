@@ -1,13 +1,24 @@
-import { sql } from '@vercel/postgres';
+import { createPool } from '@vercel/postgres';
 
-const isProd = process.env.VERCEL === '1'; // Check if running on Vercel
+const isProd = process.env.VERCEL === '1';
+
+// Create a pool instance for production
+const pool = isProd ? createPool({
+  connectionString: process.env.POSTGRES_URL
+}) : null;
 
 export async function query(text: string, params: any[] = []) {
   if (isProd) {
     if (!process.env.POSTGRES_URL) {
       throw new Error('DATABASE_ERROR: POSTGRES_URL is missing. Please connect Vercel Postgres in the Storage tab.');
     }
-    return sql.query(text, params);
+    try {
+      return await pool!.query(text, params);
+    } catch (error: any) {
+      // If pooled connection fails, it might be a direct connection string
+      console.error('Database query error:', error);
+      throw error;
+    }
   } else {
     const Database = (await import('better-sqlite3')).default;
     const db = new Database('milk_tracker.db');
@@ -21,7 +32,11 @@ export async function query(text: string, params: any[] = []) {
   }
 }
 
+let isInitialized = false;
+
 export async function initDb() {
+  if (isInitialized) return;
+  
   const queries = [
     `CREATE TABLE IF NOT EXISTS entries (
       id ${isProd ? 'SERIAL' : 'INTEGER'} PRIMARY KEY ${!isProd ? 'AUTOINCREMENT' : ''},
@@ -49,7 +64,7 @@ export async function initDb() {
   try {
     for (const q of queries) {
       if (isProd) {
-        await sql.query(q);
+        await pool!.query(q);
       } else {
         const Database = (await import('better-sqlite3')).default;
         const db = new Database('milk_tracker.db');
@@ -59,13 +74,14 @@ export async function initDb() {
 
     for (const seed of seedQueries) {
       if (isProd) {
-        await sql.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [seed.key, seed.value]);
+        await pool!.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [seed.key, seed.value]);
       } else {
         const Database = (await import('better-sqlite3')).default;
         const db = new Database('milk_tracker.db');
         db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`).run(seed.key, seed.value);
       }
     }
+    isInitialized = true;
   } catch (error) {
     console.error('Database initialization error:', error);
     throw error;
